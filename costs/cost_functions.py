@@ -1,39 +1,59 @@
+import numpy as np
 import jax.numpy as jnp
 from utils.jax_utils import get_coords_from_angle, get_angle_from_coords, bound_limits, wrap_angle
 
-def pendulum_cost(x, u):
-    MAX_TORQUE = 2.0
-    MIN_TORQUE = -2.0
+GRAVITY = 9.81 # m/s
+M1 = 5.0
+
+tfinal = 2.2
+h = 0.02
+Nt = int(np.ceil(tfinal/h))+1
+Nx = 8
+
+x_ref = np.zeros((Nt,Nx))
+x_ref[:,0] = 1.0
+x_ref[:,2] = 1.0
+
+x_ref[:,1] = 1.0 + 0.35*np.sin(2*np.pi/50.0*(np.arange(Nt))-3*np.pi/8)
+x_ref[:10,1] = 1.0
+x_ref[-53:,1] = 1.0
+x_ref[:,3] = -0.35*np.sin(2*np.pi/50.0*(np.arange(Nt)))
+x_ref[x_ref[:,3] < 0, 3] = 0
+x_ref[-50:,3] = 0
+
+x_ref = jnp.array(x_ref)
+u_ref = jnp.array([M1*GRAVITY,0])
+
+Q = jnp.diag(jnp.array([0.5, 1, 0.5, 1, 0.001, 0.001, 0.001, 0.001]))
+R = jnp.diag(jnp.array([0.0001, 0.0001]))
+
+def acrobot_cost(x, u):
+    theta1, theta2, dtheta1, dtheta2 = x
+    theta1 -= jnp.pi/2
+    theta1 = wrap_angle(theta1)
+    theta2 = wrap_angle(theta2)
     
-    cos_theta, sin_theta, thdot = x
-    theta = get_angle_from_coords((cos_theta, sin_theta))
-    u = jnp.clip(u, MIN_TORQUE, MAX_TORQUE)
-    cost = wrap_angle(theta) ** 2 + 0.1 * thdot ** 2 + 0.01 * u ** 2
+    cost = 5*theta1 ** 2 + 3*theta2 ** 2 + 0.001 * dtheta1 ** 2 + 0.001 * dtheta2 ** 2 + 0.01 * (u ** 2)
     return cost
 
 def cartpole_cost(x, u):
-    pos, pos_dot, theta, theta_dot = x
-    cost = 2 * pos ** 2 + 0.01 * pos_dot ** 2 + 10 * theta ** 2 + 0.01 * theta_dot ** 2 + 0.001 * u ** 2
+    xc, theta, dxc, dtheta = x
+    theta -= jnp.pi
+    theta = wrap_angle(theta)
+    
+    cost = theta ** 2 + 1.2*xc ** 2 + 0.01 * dxc ** 2 + 0.01 * dtheta ** 2 + 0.001 * (u ** 2)
     return cost
 
-def acrobot_cost(x, u):
-    cos_theta1, sin_theta1, cos_theta2, sin_theta2, dtheta1, dtheta2 = x
-    theta1 = get_angle_from_coords((cos_theta1, sin_theta1))
-    theta2 = get_angle_from_coords((cos_theta2, sin_theta2))
-    
-    theta1 += jnp.pi
-    theta1 = wrap_angle(theta1)
-    
-    #cost = 12 * theta1 ** 2 + 6 * theta2 ** 2 + 0.002 * dtheta1 ** 2 + 0.001 * dtheta2 ** 2 + 0.001 * (u ** 2)
-    cost = 12 * theta1 ** 2 + 6 * theta2 ** 2 + 0.01 * dtheta1 ** 2 + 0.01 * dtheta2 ** 2 + 0.001 * (u ** 2)
+def hopper_cost(x, u, i): 
+    x_error = x - x_ref[i]
+    #u_error = u - u_ref
+    cost = jnp.dot(x_error, jnp.dot(Q,x_error)) + 0.1 * (jnp.linalg.norm(x[0:2] - x[2:4]) - 0.4) **2 + jnp.dot(u, jnp.dot(R,u))
     return cost
 
-def hopper_cost(x, u):
-    rb = x[0:2]
-    rf = x[2:4]
-    v = x[4:8]
-    
-    cost = rb[0] ** 2 + rf[0] ** 2 + 1000 * (rb[1] - 1.0) ** 2 + 1000 * (rf[1] - 0.1) ** 2
-    
-    #0.001 * jnp.dot(v, v) + 0.0001 * jnp.dot(u, u) + 100 * (rb[1] - 1.0) ** 2 + 100 * (rf[1] - 0.2)** 2
+"""
+def hopper_cost(x, u, i): 
+    x_error = x - x_ref[i]
+    #u_error = u - u_ref
+    cost = jnp.dot(x_error, jnp.dot(Q,x_error)) #+ 0.1 * (jnp.linalg.norm(x[0:2] - x[2:4]) - 1.0) **2 #+ jnp.dot(u_error, jnp.dot(R, u_error)) +  0.01 * (x[0] - x[2])**2
     return cost
+"""
